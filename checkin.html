@@ -55,7 +55,7 @@
           <button type="button" id="uploadBtn" class="secondary">Upload Image</button>
           <button type="button" id="retakeBtn" class="secondary" style="display:none">Retake</button>
         </div>
-        <button type="button" id="useLastBtn" class="secondary" disabled>Load last selfie + location</button>
+        <button type="button" id="useLastBtn" class="secondary">Load last selfie + location</button>
       </div>
 
       <div id="gpsInfo" class="gps-info">GPS: requesting…</div>
@@ -315,6 +315,7 @@
         els.captureBtn.style.display = 'none';
         els.uploadBtn.style.display = 'none';
         els.retakeBtn.style.display = 'inline-block';
+        saveLastImage(blob);
         updateSubmitState();
       }, 'image/jpeg', 0.9);
     });
@@ -331,6 +332,7 @@
       els.captureBtn.style.display = 'none';
       els.uploadBtn.style.display = 'none';
       els.retakeBtn.style.display = 'inline-block';
+      saveLastImage(file);
       updateSubmitState();
     });
 
@@ -387,7 +389,6 @@
         const msg = (result && result.result && result.result.serviceResult && result.result.serviceResult.message) || 'Success';
         showResult(`${els.action.value}: ${msg}`, 'success');
         await saveLastImage(capturedBlob);
-        els.useLastBtn.disabled = false;
         await loadProfileAndRecord();
       } catch (err) {
         showResult(err.message, 'error');
@@ -413,7 +414,6 @@
     els.gpsInfo.textContent = hasSavedLocation
       ? 'GPS: using last saved location · tap "Use current location" to refresh'
       : 'GPS: not yet set · tap "Use current location"';
-    els.useLastBtn.disabled = !hasLastImage();
     window.addEventListener('beforeunload', stopCamera);
   </script>
 </body>
