@@ -61,7 +61,7 @@
       <div id="gpsInfo" class="gps-info">GPS: requesting…</div>
 
       <div id="map"></div>
-      <div class="map-hint">Last used location is preloaded · tap map or drag marker to change · tap "Use current location" for live GPS</div>
+      <div class="map-hint">Default: office (17.9643673, 102.6261568, ±10m) — resets on refresh · tap map or drag marker to change · tap "Use current location" for live GPS · tap "Load last" to restore previous</div>
 
       <div class="row">
         <label>
@@ -126,7 +126,7 @@
 
     const LAST_LOCATION_KEY = 'sw_last_location';
     const LAST_IMAGE_KEY = 'sw_last_image';
-    const DEFAULT_LOCATION = { lat: 17.9643673, lng: 102.6261568 };
+    const DEFAULT_LOCATION = { lat: 17.9643673, lng: 102.6261568, accuracy: 10 };
 
     function loadLastLocation() {
       try {
@@ -266,8 +266,7 @@
     }
 
     function initMap() {
-      const last = loadLastLocation();
-      const start = last ? { lat: last.lat, lng: last.lng } : DEFAULT_LOCATION;
+      const start = DEFAULT_LOCATION;
       map = L.map('map').setView([start.lat, start.lng], 16);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
@@ -276,7 +275,7 @@
       marker = L.marker([start.lat, start.lng], { draggable: true }).addTo(map);
       els.latitude.value = start.lat.toFixed(7);
       els.longitude.value = start.lng.toFixed(7);
-      if (last && Number.isFinite(last.accuracy)) els.accuracy.value = last.accuracy.toFixed(1);
+      els.accuracy.value = start.accuracy.toFixed(1);
       updateSubmitState();
 
       map.on('click', (e) => {
@@ -408,12 +407,7 @@
     loadProfileAndRecord();
     startCamera();
     initMap();
-    // The last-saved lat/long from localStorage is preloaded by initMap()
-    // and stays unless the user taps "Use current location".
-    const hasSavedLocation = !!loadLastLocation();
-    els.gpsInfo.textContent = hasSavedLocation
-      ? 'GPS: using last saved location · tap "Use current location" to refresh'
-      : 'GPS: not yet set · tap "Use current location"';
+    els.gpsInfo.textContent = `GPS: office default (${DEFAULT_LOCATION.lat}, ${DEFAULT_LOCATION.lng}, ±${DEFAULT_LOCATION.accuracy}m) · tap "Use current location" for live GPS or "Load last" to restore last used`;
     window.addEventListener('beforeunload', stopCamera);
   </script>
 </body>
