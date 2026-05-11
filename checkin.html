@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SuperWork">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>SuperWork v2 — Check In/Out</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -55,7 +60,7 @@
       <div id="gpsInfo" class="gps-info">GPS: requesting…</div>
 
       <div id="map"></div>
-      <div class="map-hint">Click map or drag marker to pick location · last pick is auto-saved</div>
+      <div class="map-hint">Last used location is preloaded · tap map or drag marker to change · tap "Use current location" for live GPS</div>
 
       <div class="row">
         <label>
@@ -350,7 +355,12 @@
     loadProfileAndRecord();
     startCamera();
     initMap();
-    getGPS();
+    // Note: do NOT auto-fetch GPS. The last-saved lat/long from localStorage
+    // is preloaded by initMap() and stays unless the user taps "Use current location".
+    const hasSavedLocation = !!loadLastLocation();
+    els.gpsInfo.textContent = hasSavedLocation
+      ? 'GPS: using last saved location · tap "Use current location" to refresh'
+      : 'GPS: not yet set · tap "Use current location"';
     window.addEventListener('beforeunload', stopCamera);
   </script>
 </body>
