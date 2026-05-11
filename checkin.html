@@ -55,6 +55,7 @@
           <button type="button" id="uploadBtn" class="secondary">Upload Image</button>
           <button type="button" id="retakeBtn" class="secondary" style="display:none">Retake</button>
         </div>
+        <button type="button" id="useLastBtn" class="secondary" disabled>Load last selfie + location</button>
       </div>
 
       <div id="gpsInfo" class="gps-info">GPS: requesting…</div>
@@ -107,6 +108,7 @@
       uploadBtn: document.getElementById('uploadBtn'),
       fileInput: document.getElementById('fileInput'),
       retakeBtn: document.getElementById('retakeBtn'),
+      useLastBtn: document.getElementById('useLastBtn'),
       gpsInfo: document.getElementById('gpsInfo'),
       latitude: document.getElementById('latitude'),
       longitude: document.getElementById('longitude'),
@@ -123,6 +125,7 @@
     let marker = null;
 
     const LAST_LOCATION_KEY = 'sw_last_location';
+    const LAST_IMAGE_KEY = 'sw_last_image';
     const DEFAULT_LOCATION = { lat: 17.9643673, lng: 102.6261568 };
 
     function loadLastLocation() {
@@ -135,6 +138,31 @@
 
     function saveLastLocation(lat, lng, accuracy) {
       localStorage.setItem(LAST_LOCATION_KEY, JSON.stringify({ lat, lng, accuracy }));
+    }
+
+    function saveLastImage(blob) {
+      return new Promise((resolve) => {
+        const fr = new FileReader();
+        fr.onload = () => {
+          try { localStorage.setItem(LAST_IMAGE_KEY, fr.result); } catch (_) {}
+          resolve();
+        };
+        fr.onerror = () => resolve();
+        fr.readAsDataURL(blob);
+      });
+    }
+
+    async function loadLastImage() {
+      const dataUrl = localStorage.getItem(LAST_IMAGE_KEY);
+      if (!dataUrl) return null;
+      try {
+        const res = await fetch(dataUrl);
+        return await res.blob();
+      } catch (_) { return null; }
+    }
+
+    function hasLastImage() {
+      return !!localStorage.getItem(LAST_IMAGE_KEY);
     }
 
     function setLocation(lat, lng, accuracy, opts = {}) {
@@ -317,6 +345,28 @@
       updateSubmitState();
     });
 
+    els.useLastBtn.addEventListener('click', async () => {
+      const blob = await loadLastImage();
+      if (!blob) {
+        showResult('No saved selfie yet — capture one and submit to save it for next time', 'error');
+        return;
+      }
+      capturedBlob = blob;
+      els.preview.src = URL.createObjectURL(blob);
+      els.preview.style.display = 'block';
+      els.video.style.display = 'none';
+      els.captureBtn.style.display = 'none';
+      els.uploadBtn.style.display = 'none';
+      els.retakeBtn.style.display = 'inline-block';
+
+      const last = loadLastLocation();
+      if (last) {
+        setLocation(last.lat, last.lng, Number.isFinite(last.accuracy) ? last.accuracy : 20, { pan: true, zoom: 16 });
+      }
+      showResult('Loaded last selfie + location', 'info');
+      updateSubmitState();
+    });
+
     els.submitBtn.addEventListener('click', async () => {
       const coords = readCoords();
       if (!coords) {
@@ -336,6 +386,8 @@
         });
         const msg = (result && result.result && result.result.serviceResult && result.result.serviceResult.message) || 'Success';
         showResult(`${els.action.value}: ${msg}`, 'success');
+        await saveLastImage(capturedBlob);
+        els.useLastBtn.disabled = false;
         await loadProfileAndRecord();
       } catch (err) {
         showResult(err.message, 'error');
@@ -355,12 +407,13 @@
     loadProfileAndRecord();
     startCamera();
     initMap();
-    // Note: do NOT auto-fetch GPS. The last-saved lat/long from localStorage
-    // is preloaded by initMap() and stays unless the user taps "Use current location".
+    // The last-saved lat/long from localStorage is preloaded by initMap()
+    // and stays unless the user taps "Use current location".
     const hasSavedLocation = !!loadLastLocation();
     els.gpsInfo.textContent = hasSavedLocation
       ? 'GPS: using last saved location · tap "Use current location" to refresh'
       : 'GPS: not yet set · tap "Use current location"';
+    els.useLastBtn.disabled = !hasLastImage();
     window.addEventListener('beforeunload', stopCamera);
   </script>
 </body>
