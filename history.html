@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SuperWork v2 — Attendance History</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Attendance History</h1>
+
+    <div class="nav-row">
+      <a href="checkin.html">Check In/Out</a>
+      <a href="history.html" class="active">History</a>
+    </div>
+
+    <label style="margin-bottom: 12px; display: block;">
+      Month
+      <select id="monthFilter"></select>
+    </label>
+
+    <div id="summary" class="history-summary" style="display:none"></div>
+
+    <div id="tableWrapper">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>In</th>
+            <th>Out</th>
+            <th>Late</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr><td colspan="4" class="empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="error" style="margin-top: 16px;"></div>
+
+    <button type="button" id="logoutBtn" class="secondary" style="margin-top: 16px; width: 100%;">Logout</button>
+  </div>
+
+  <script src="api.js"></script>
+  <script>
+    const token = localStorage.getItem('sw_token');
+    if (!token) window.location.href = 'index.html';
+
+    const els = {
+      monthFilter: document.getElementById('monthFilter'),
+      historyBody: document.getElementById('historyBody'),
+      summary: document.getElementById('summary'),
+      error: document.getElementById('error'),
+      logoutBtn: document.getElementById('logoutBtn'),
+    };
+
+    let allRecords = [];
+
+    function showError(msg) {
+      els.error.innerHTML = `<div class="error">${msg}</div>`;
+    }
+
+    function ymKey(dateStr) {
+      return dateStr ? dateStr.slice(0, 7) : '';
+    }
+
+    function ymLabel(ym) {
+      const [y, m] = ym.split('-');
+      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${monthNames[parseInt(m, 10) - 1]} ${y}`;
+    }
+
+    function buildMonthOptions(records) {
+      const months = new Set(records.map(r => ymKey(r.dateRequest)).filter(Boolean));
+      const sorted = Array.from(months).sort().reverse();
+      const currentYM = new Date().toISOString().slice(0, 7);
+      if (!sorted.includes(currentYM)) sorted.unshift(currentYM);
+
+      els.monthFilter.innerHTML = sorted
+        .map(ym => `<option value="${ym}">${ymLabel(ym)}</option>`)
+        .join('');
+      els.monthFilter.value = sorted[0];
+    }
+
+    function renderRecords(records) {
+      if (!records.length) {
+        els.historyBody.innerHTML = '<tr><td colspan="4" class="empty">No records for this month</td></tr>';
+        els.summary.style.display = 'none';
+        return;
+      }
+
+      const sorted = [...records].sort((a, b) => b.dateRequest.localeCompare(a.dateRequest));
+      els.historyBody.innerHTML = sorted.map(r => {
+        const isLate = r.shift && r.shift.isLate;
+        const lateMin = (r.shift && r.shift.lateMinutes) || 0;
+        const lateText = isLate
+          ? `<span class="late">+${lateMin} min</span>`
+          : (r.timeIn ? '<span class="ontime">on time</span>' : '—');
+        return `<tr>
+          <td>${r.dateRequest}</td>
+          <td>${r.timeIn || '—'}</td>
+          <td>${r.timeOut || '—'}</td>
+          <td>${lateText}</td>
+        </tr>`;
+      }).join('');
+
+      const totalDays = records.length;
+      const lateDays = records.filter(r => r.shift && r.shift.isLate).length;
+      const totalLateMin = records.reduce((s, r) => s + ((r.shift && r.shift.lateMinutes) || 0), 0);
+      const completed = records.filter(r => r.timeIn && r.timeOut).length;
+
+      els.summary.style.display = 'flex';
+      els.summary.innerHTML = `
+        <div><strong>${totalDays}</strong> days</div>
+        <div><strong>${completed}</strong> completed</div>
+        <div><strong>${lateDays}</strong> late</div>
+        <div><strong>${totalLateMin}</strong> min late total</div>
+      `;
+    }
+
+    function applyFilter() {
+      const ym = els.monthFilter.value;
+      const filtered = allRecords.filter(r => ymKey(r.dateRequest) === ym);
+      renderRecords(filtered);
+    }
+
+    async function load() {
+      try {
+        allRecords = await SuperWorkAPI.getAllRecords(token);
+        buildMonthOptions(allRecords);
+        applyFilter();
+      } catch (err) {
+        showError(err.message);
+        if (/401|UNAUTHENTICATED/i.test(err.message)) {
+          localStorage.clear();
+          window.location.href = 'index.html';
+        }
+      }
+    }
+
+    els.monthFilter.addEventListener('change', applyFilter);
+    els.logoutBtn.addEventListener('click', () => {
+      localStorage.clear();
+      window.location.href = 'index.html';
+    });
+
+    load();
+  </script>
+</body>
+</html>

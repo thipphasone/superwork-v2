@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SuperWork v2 — Login</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>SuperWork Login</h1>
+    <p class="subtitle">Sign in with your phone and 6-digit PIN</p>
+
+    <form id="loginForm">
+      <label>
+        Phone (international format)
+        <input type="tel" id="phone" placeholder="+8562055991913" autocomplete="tel" required>
+      </label>
+      <label>
+        PIN
+        <input type="password" id="pin" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="••••••" autocomplete="current-password" required>
+      </label>
+      <button type="submit" id="submitBtn">Login</button>
+    </form>
+
+    <div id="error" class="error" style="display:none; margin-top: 16px;"></div>
+  </div>
+
+  <script src="api.js"></script>
+  <script>
+    const form = document.getElementById('loginForm');
+    const errorEl = document.getElementById('error');
+    const submitBtn = document.getElementById('submitBtn');
+
+    if (localStorage.getItem('sw_token')) {
+      window.location.href = 'checkin.html';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const phone = document.getElementById('phone').value.trim();
+      const pin = document.getElementById('pin').value.trim();
+
+      errorEl.style.display = 'none';
+      errorEl.textContent = '';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Signing in…';
+
+      try {
+        const data = await SuperWorkAPI.login(phone, pin);
+        localStorage.setItem('sw_token', data.token.accessToken);
+        localStorage.setItem('sw_refresh', data.token.refreshToken);
+        localStorage.setItem('sw_user', JSON.stringify(data.user));
+        localStorage.setItem('sw_attendance', data.attendance_status || '');
+        window.location.href = 'checkin.html';
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Login';
+      }
+    });
+  </script>
+</body>
+</html>

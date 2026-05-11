@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SuperWork v2 — Check In/Out</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+</head>
+<body>
+  <div class="container">
+    <h1>Check In / Check Out</h1>
+
+    <div class="nav-row">
+      <a href="checkin.html" class="active">Check In/Out</a>
+      <a href="history.html">History</a>
+    </div>
+
+    <div id="userCard" class="user-card" style="margin-bottom: 16px;">
+      <img id="avatar" alt="">
+      <div>
+        <div class="name" id="userName">—</div>
+        <div class="meta" id="userMeta">—</div>
+      </div>
+    </div>
+
+    <div id="todayRecord" class="record-display" style="margin-bottom: 16px;">
+      <div class="label">Status</div><div class="value" id="statusBadge">—</div>
+      <div class="label">Time In</div><div class="value" id="timeIn">—</div>
+      <div class="label">Time Out</div><div class="value" id="timeOut">—</div>
+    </div>
+
+    <div class="section">
+      <label>
+        Action
+        <select id="action">
+          <option value="Checked_In">Check In</option>
+          <option value="Checked_Out">Check Out</option>
+        </select>
+      </label>
+
+      <div class="camera-section">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas" style="display:none"></canvas>
+        <img id="preview" class="preview" style="display:none" alt="">
+        <input type="file" id="fileInput" accept="image/*" style="display:none">
+        <div class="row">
+          <button type="button" id="captureBtn" class="secondary">Capture</button>
+          <button type="button" id="uploadBtn" class="secondary">Upload Image</button>
+          <button type="button" id="retakeBtn" class="secondary" style="display:none">Retake</button>
+        </div>
+      </div>
+
+      <div id="gpsInfo" class="gps-info">GPS: requesting…</div>
+
+      <div id="map"></div>
+      <div class="map-hint">Click map or drag marker to pick location · last pick is auto-saved</div>
+
+      <div class="row">
+        <label>
+          Latitude
+          <input type="number" id="latitude" step="any" placeholder="17.9643673">
+        </label>
+        <label>
+          Longitude
+          <input type="number" id="longitude" step="any" placeholder="102.6261568">
+        </label>
+      </div>
+      <label>
+        Accuracy (meters)
+        <input type="number" id="accuracy" step="any" placeholder="10">
+      </label>
+      <button type="button" id="useCurrentLocationBtn" class="secondary">Use current location</button>
+
+      <button type="button" id="submitBtn" disabled>Submit</button>
+      <button type="button" id="logoutBtn" class="secondary">Logout</button>
+    </div>
+
+    <div id="result" style="margin-top: 16px;"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="api.js"></script>
+  <script>
+    const token = localStorage.getItem('sw_token');
+    if (!token) window.location.href = 'index.html';
+
+    const els = {
+      avatar: document.getElementById('avatar'),
+      userName: document.getElementById('userName'),
+      userMeta: document.getElementById('userMeta'),
+      statusBadge: document.getElementById('statusBadge'),
+      timeIn: document.getElementById('timeIn'),
+      timeOut: document.getElementById('timeOut'),
+      action: document.getElementById('action'),
+      video: document.getElementById('video'),
+      canvas: document.getElementById('canvas'),
+      preview: document.getElementById('preview'),
+      captureBtn: document.getElementById('captureBtn'),
+      uploadBtn: document.getElementById('uploadBtn'),
+      fileInput: document.getElementById('fileInput'),
+      retakeBtn: document.getElementById('retakeBtn'),
+      gpsInfo: document.getElementById('gpsInfo'),
+      latitude: document.getElementById('latitude'),
+      longitude: document.getElementById('longitude'),
+      accuracy: document.getElementById('accuracy'),
+      useCurrentLocationBtn: document.getElementById('useCurrentLocationBtn'),
+      submitBtn: document.getElementById('submitBtn'),
+      logoutBtn: document.getElementById('logoutBtn'),
+      result: document.getElementById('result'),
+    };
+
+    let capturedBlob = null;
+    let cameraStream = null;
+    let map = null;
+    let marker = null;
+
+    const LAST_LOCATION_KEY = 'sw_last_location';
+    const DEFAULT_LOCATION = { lat: 17.9643673, lng: 102.6261568 };
+
+    function loadLastLocation() {
+      try {
+        const v = JSON.parse(localStorage.getItem(LAST_LOCATION_KEY) || 'null');
+        if (v && Number.isFinite(v.lat) && Number.isFinite(v.lng)) return v;
+      } catch (_) {}
+      return null;
+    }
+
+    function saveLastLocation(lat, lng, accuracy) {
+      localStorage.setItem(LAST_LOCATION_KEY, JSON.stringify({ lat, lng, accuracy }));
+    }
+
+    function setLocation(lat, lng, accuracy, opts = {}) {
+      els.latitude.value = lat.toFixed(7);
+      els.longitude.value = lng.toFixed(7);
+      if (Number.isFinite(accuracy)) els.accuracy.value = accuracy.toFixed(1);
+      saveLastLocation(lat, lng, Number.isFinite(accuracy) ? accuracy : null);
+      if (marker) marker.setLatLng([lat, lng]);
+      if (map && opts.pan) map.setView([lat, lng], opts.zoom || map.getZoom());
+      updateSubmitState();
+    }
+
+    function readCoords() {
+      const lat = parseFloat(els.latitude.value);
+      const lng = parseFloat(els.longitude.value);
+      const acc = parseFloat(els.accuracy.value);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return { latitude: lat, longitude: lng, accuracy: Number.isFinite(acc) ? acc : 0 };
+      }
+      return null;
+    }
+
+    function showResult(message, type = 'info') {
+      els.result.innerHTML = `<div class="${type}">${message}</div>`;
+    }
+
+    function updateSubmitState() {
+      els.submitBtn.disabled = !(capturedBlob && readCoords());
+    }
+    els.latitude.addEventListener('input', updateSubmitState);
+    els.longitude.addEventListener('input', updateSubmitState);
+
+    function setStatusBadge(status) {
+      const inSession = status === 'Checked_In';
+      els.statusBadge.innerHTML = `<span class="status-badge ${inSession ? 'in' : 'out'}">${status || '—'}</span>`;
+      els.action.value = inSession ? 'Checked_Out' : 'Checked_In';
+    }
+
+    async function loadProfileAndRecord() {
+      try {
+        const profile = await SuperWorkAPI.getProfile(token);
+        const u = profile.user;
+        els.avatar.src = u.avatarURL || '';
+        els.userName.textContent = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+        els.userMeta.textContent = `${(u.position && u.position.name) || ''} · ${(u.team && u.team.name) || ''}`;
+        setStatusBadge(profile.attendance_status);
+
+        const record = await SuperWorkAPI.getTodayRecord(token);
+        els.timeIn.textContent = (record && record.timeIn) || '—';
+        els.timeOut.textContent = (record && record.timeOut) || '—';
+      } catch (err) {
+        showResult(`Failed to load profile: ${err.message}`, 'error');
+        if (/401|UNAUTHENTICATED/i.test(err.message)) {
+          localStorage.clear();
+          window.location.href = 'index.html';
+        }
+      }
+    }
+
+    async function startCamera() {
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: 320, height: 240 },
+          audio: false
+        });
+        els.video.srcObject = cameraStream;
+      } catch (err) {
+        showResult(`Camera error: ${err.message}`, 'error');
+      }
+    }
+
+    function stopCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(t => t.stop());
+        cameraStream = null;
+      }
+    }
+
+    function getGPS() {
+      if (!navigator.geolocation) {
+        els.gpsInfo.textContent = 'GPS: not supported by this browser';
+        return;
+      }
+      els.gpsInfo.textContent = 'GPS: requesting…';
+      els.useCurrentLocationBtn.disabled = true;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const acc = pos.coords.accuracy;
+          els.gpsInfo.textContent = `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${acc.toFixed(0)}m)`;
+          setLocation(lat, lng, acc, { pan: true, zoom: 16 });
+          els.useCurrentLocationBtn.disabled = false;
+        },
+        (err) => {
+          els.gpsInfo.textContent = `GPS error: ${err.message}`;
+          els.useCurrentLocationBtn.disabled = false;
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    }
+
+    function initMap() {
+      const last = loadLastLocation();
+      const start = last ? { lat: last.lat, lng: last.lng } : DEFAULT_LOCATION;
+      map = L.map('map').setView([start.lat, start.lng], 16);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map);
+      marker = L.marker([start.lat, start.lng], { draggable: true }).addTo(map);
+      els.latitude.value = start.lat.toFixed(7);
+      els.longitude.value = start.lng.toFixed(7);
+      if (last && Number.isFinite(last.accuracy)) els.accuracy.value = last.accuracy.toFixed(1);
+      updateSubmitState();
+
+      map.on('click', (e) => {
+        setLocation(e.latlng.lat, e.latlng.lng, parseFloat(els.accuracy.value));
+      });
+      marker.on('dragend', () => {
+        const ll = marker.getLatLng();
+        setLocation(ll.lat, ll.lng, parseFloat(els.accuracy.value));
+      });
+
+      function syncMarkerFromInputs() {
+        const lat = parseFloat(els.latitude.value);
+        const lng = parseFloat(els.longitude.value);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          marker.setLatLng([lat, lng]);
+          saveLastLocation(lat, lng, parseFloat(els.accuracy.value));
+        }
+      }
+      els.latitude.addEventListener('change', syncMarkerFromInputs);
+      els.longitude.addEventListener('change', syncMarkerFromInputs);
+    }
+    els.useCurrentLocationBtn.addEventListener('click', getGPS);
+
+    els.captureBtn.addEventListener('click', () => {
+      const v = els.video;
+      const c = els.canvas;
+      c.width = v.videoWidth || 320;
+      c.height = v.videoHeight || 240;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      c.toBlob((blob) => {
+        capturedBlob = blob;
+        els.preview.src = URL.createObjectURL(blob);
+        els.preview.style.display = 'block';
+        els.video.style.display = 'none';
+        els.captureBtn.style.display = 'none';
+        els.uploadBtn.style.display = 'none';
+        els.retakeBtn.style.display = 'inline-block';
+        updateSubmitState();
+      }, 'image/jpeg', 0.9);
+    });
+
+    els.uploadBtn.addEventListener('click', () => els.fileInput.click());
+
+    els.fileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      capturedBlob = file;
+      els.preview.src = URL.createObjectURL(file);
+      els.preview.style.display = 'block';
+      els.video.style.display = 'none';
+      els.captureBtn.style.display = 'none';
+      els.uploadBtn.style.display = 'none';
+      els.retakeBtn.style.display = 'inline-block';
+      updateSubmitState();
+    });
+
+    els.retakeBtn.addEventListener('click', () => {
+      capturedBlob = null;
+      els.fileInput.value = '';
+      els.preview.style.display = 'none';
+      els.video.style.display = 'block';
+      els.captureBtn.style.display = 'inline-block';
+      els.uploadBtn.style.display = 'inline-block';
+      els.retakeBtn.style.display = 'none';
+      updateSubmitState();
+    });
+
+    els.submitBtn.addEventListener('click', async () => {
+      const coords = readCoords();
+      if (!coords) {
+        showResult('Latitude/Longitude required', 'error');
+        return;
+      }
+      els.submitBtn.disabled = true;
+      els.submitBtn.textContent = 'Submitting…';
+      try {
+        const result = await SuperWorkAPI.checkInOut(token, {
+          imageBlob: capturedBlob,
+          attendanceStatus: els.action.value,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy,
+          address: ''
+        });
+        const msg = (result && result.result && result.result.serviceResult && result.result.serviceResult.message) || 'Success';
+        showResult(`${els.action.value}: ${msg}`, 'success');
+        await loadProfileAndRecord();
+      } catch (err) {
+        showResult(err.message, 'error');
+      } finally {
+        els.submitBtn.disabled = false;
+        els.submitBtn.textContent = 'Submit';
+        updateSubmitState();
+      }
+    });
+
+    els.logoutBtn.addEventListener('click', () => {
+      stopCamera();
+      localStorage.clear();
+      window.location.href = 'index.html';
+    });
+
+    loadProfileAndRecord();
+    startCamera();
+    initMap();
+    getGPS();
+    window.addEventListener('beforeunload', stopCamera);
+  </script>
+</body>
+</html>
